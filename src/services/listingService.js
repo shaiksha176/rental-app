@@ -1,5 +1,7 @@
 import * as listingRepository from "../repository/listingRepository.js";
 import * as userRepository from "../repository/userRepository.js";
+import * as cacheService from "./cacheService.js";
+
 
 export async function createListing(
   hostId,
@@ -52,10 +54,21 @@ export async function getListingById(id) {
     throw new Error("Listing ID is required");
   }
 
+  const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
+
+  // Try cache first
+  const cachedListing = await cacheService.get(cacheKey);
+  if (cachedListing) {
+    return cachedListing;
+  }
+
   const listing = await listingRepository.getListingById(id);
   if (!listing) {
     throw new Error("Listing not found");
   }
+
+  // Save to cache
+  await cacheService.set(cacheKey, listing);
 
   return listing;
 }
@@ -105,7 +118,13 @@ export async function updateListing(id, updates) {
     throw new Error("Accommodation must be greater than 0");
   }
 
-  return await listingRepository.updateListing(id, updates);
+  const updatedListing = await listingRepository.updateListing(id, updates);
+
+  // Invalidate cache
+  const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
+  await cacheService.del(cacheKey);
+
+  return updatedListing;
 }
 
 export async function deleteListing(id) {
@@ -118,5 +137,11 @@ export async function deleteListing(id) {
     throw new Error("Listing not found");
   }
 
-  return await listingRepository.deleteListing(id);
+  const result = await listingRepository.deleteListing(id);
+
+  // Invalidate cache
+  const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
+  await cacheService.del(cacheKey);
+
+  return result;
 }

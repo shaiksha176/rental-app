@@ -8,6 +8,8 @@ import userRoutes from "./routes/users.js";
 import listingRoutes from "./routes/listings.js";
 import bookingRoutes from "./routes/bookings.js";
 import paymentRoutes from "./routes/payments.js";
+import redisClient from "./db/redis.js";
+
 
 dotenv.config();
 
@@ -42,6 +44,8 @@ async function shutdown() {
     console.log("Server closed");
     await pool.end();
     console.log("Database connections closed");
+    await redisClient.quit();
+    console.log("Redis connection closed");
     process.exit(0);
   });
 }
@@ -57,6 +61,9 @@ async function start() {
     // Test database connection
     await pool.query("SELECT 1");
     console.log("✓ Connected to PostgreSQL");
+
+    // Connect to Redis
+    await redisClient.connect();
 
     server = app.listen(PORT, () => {
       console.log(`✓ Server running on http://localhost:${PORT}`);

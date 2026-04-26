@@ -56,7 +56,7 @@ export async function getListingById(id) {
 
   const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
 
-  // Try cache first
+  // Concept: Cache-Aside (Read) - Check Redis before hitting the Database
   const cachedListing = await cacheService.get(cacheKey);
   if (cachedListing) {
     return cachedListing;
@@ -67,7 +67,7 @@ export async function getListingById(id) {
     throw new Error("Listing not found");
   }
 
-  // Save to cache
+  // Concept: Cache-Aside (Populate) - Save data for subsequent requests
   await cacheService.set(cacheKey, listing);
 
   return listing;
@@ -120,7 +120,7 @@ export async function updateListing(id, updates) {
 
   const updatedListing = await listingRepository.updateListing(id, updates);
 
-  // Invalidate cache
+  // Concept: Proactive Invalidation - Remove stale data from cache on update
   const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
   await cacheService.del(cacheKey);
 
@@ -139,7 +139,7 @@ export async function deleteListing(id) {
 
   const result = await listingRepository.deleteListing(id);
 
-  // Invalidate cache
+  // Concept: Proactive Invalidation - Remove data from cache on delete
   const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
   await cacheService.del(cacheKey);
 

@@ -44,6 +44,7 @@ async function shutdown() {
     console.log("Server closed");
     await pool.end();
     console.log("Database connections closed");
+    // Concept: Graceful Shutdown - Always close Redis connections to prevent memory leaks
     await redisClient.quit();
     console.log("Redis connection closed");
     process.exit(0);
@@ -62,7 +63,7 @@ async function start() {
     await pool.query("SELECT 1");
     console.log("✓ Connected to PostgreSQL");
 
-    // Connect to Redis
+    // Concept: Connection Management - Initialize Redis on startup
     await redisClient.connect();
 
     server = app.listen(PORT, () => {

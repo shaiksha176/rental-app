@@ -39,7 +39,7 @@ export async function createBooking(
     throw new Error("Only guests can make bookings");
   }
 
-  const newBooking = await bookingRepository.createBooking(
+  const newBooking = await bookingRepository.createBookingAtomic(
     listingId,
     guestId,
     checkIn,

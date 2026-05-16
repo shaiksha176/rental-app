@@ -1,17 +1,49 @@
 import pool from "../db/client.js";
 
-export async function createBooking(
+export async function createBookingAtomic(
   listingId,
   guestId,
   checkIn,
   checkOut,
   totalPrice,
 ) {
-  const result = await pool.query(
-    "INSERT INTO bookings (listing_id, guest_id, check_in, check_out, total_price) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-    [listingId, guestId, checkIn, checkOut, totalPrice],
-  );
-  return result.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Lock the listing row so concurrent bookings for the same listing queue up here
+    await client.query("SELECT id FROM listings WHERE id = $1 FOR UPDATE", [listingId]);
+
+    // Check for overlapping bookings
+    // Two ranges overlap when: existing.check_in < newCheckOut AND existing.check_out > newCheckIn
+    const conflict = await client.query(
+      `SELECT id FROM bookings
+       WHERE listing_id = $1
+         AND booking_status != 'cancelled'
+         AND check_in < $2
+         AND check_out > $3`,
+      [listingId, checkOut, checkIn],
+    );
+
+    if (conflict.rows.length > 0) {
+      const err = new Error("Listing is already booked for these dates");
+      err.code = "BOOKING_CONFLICT";
+      throw err;
+    }
+
+    const result = await client.query(
+      "INSERT INTO bookings (listing_id, guest_id, check_in, check_out, total_price) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [listingId, guestId, checkIn, checkOut, totalPrice],
+    );
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getBookingById(id) {

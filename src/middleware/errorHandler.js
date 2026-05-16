@@ -1,6 +1,10 @@
 export function errorHandler(err, req, res, next) {
   console.error("Error:", err.message);
 
+  if (err.code === "BOOKING_CONFLICT") {
+    return res.status(409).json({ error: err.message });
+  }
+
   // PostgreSQL error codes
   if (err.code === "23505") {
     return res.status(400).json({ error: "Unique constraint violation" });

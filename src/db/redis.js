@@ -3,11 +3,19 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const redisHost = process.env.REDIS_HOST || "localhost";
-const redisPort = process.env.REDIS_PORT || 6379;
+/**
+ * Shared Redis configuration for both Cache and Queues.
+ */
+export const redisConfig = {
+  host: process.env.REDIS_HOST || "localhost",
+  port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+};
 
+/**
+ * Redis Client for Caching
+ */
 const client = createClient({
-  url: `redis://${redisHost}:${redisPort}`,
+  url: `redis://${redisConfig.host}:${redisConfig.port}`,
 });
 
 client.on("error", (err) => {
@@ -15,11 +23,7 @@ client.on("error", (err) => {
 });
 
 client.on("connect", () => {
-  console.log("✓ Connecting to Redis...");
-});
-
-client.on("ready", () => {
-  console.log("✓ Redis Client Ready");
+  console.log("✓ Connecting to Redis (Cache)...");
 });
 
 export default client;

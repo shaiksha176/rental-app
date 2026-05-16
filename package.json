@@ -8,7 +8,11 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "migrate": "node src/db/migrations.js",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose stop postgres redis",
+    "db:reset": "docker compose down -v && docker compose up -d postgres redis",
+    "db:logs": "docker compose logs -f postgres"
   },
   "keywords": [],
   "author": "",

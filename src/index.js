@@ -9,7 +9,7 @@ import listingRoutes from "./routes/listings.js";
 import bookingRoutes from "./routes/bookings.js";
 import paymentRoutes from "./routes/payments.js";
 import redisClient from "./db/redis.js";
-
+import { initBookingWorker } from "./workers/bookingWorker.js";
 
 dotenv.config();
 
@@ -42,9 +42,9 @@ async function shutdown() {
 
   server.close(async () => {
     console.log("Server closed");
+    await worker.close();
     await pool.end();
     console.log("Database connections closed");
-    // Concept: Graceful Shutdown - Always close Redis connections to prevent memory leaks
     await redisClient.quit();
     console.log("Redis connection closed");
     process.exit(0);
@@ -54,17 +54,17 @@ async function shutdown() {
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-// Start server
 let server;
+let worker;
 
 async function start() {
   try {
-    // Test database connection
     await pool.query("SELECT 1");
     console.log("✓ Connected to PostgreSQL");
 
-    // Concept: Connection Management - Initialize Redis on startup
     await redisClient.connect();
+
+    worker = initBookingWorker();
 
     server = app.listen(PORT, () => {
       console.log(`✓ Server running on http://localhost:${PORT}`);

@@ -5,8 +5,8 @@ const router = express.Router();
 
 router.post("/", listingController.createListing);
 router.get("/", listingController.getAllListings);
-router.get("/:id", listingController.getListing);
 router.get("/host/:hostId", listingController.getListingsByHost);
+router.get("/:id", listingController.getListing);
 router.patch("/:id", listingController.updateListing);
 router.delete("/:id", listingController.deleteListing);
 

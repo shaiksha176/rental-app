@@ -120,9 +120,7 @@ export async function updateListing(id, updates) {
 
   const updatedListing = await listingRepository.updateListing(id, updates);
 
-  // Concept: Proactive Invalidation - Remove stale data from cache on update
-  const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
-  await cacheService.del(cacheKey);
+  await cacheService.del(`${cacheService.CACHE_PREFIX.LISTING}${id}`);
 
   return updatedListing;
 }
@@ -139,9 +137,7 @@ export async function deleteListing(id) {
 
   const result = await listingRepository.deleteListing(id);
 
-  // Concept: Proactive Invalidation - Remove data from cache on delete
-  const cacheKey = `${cacheService.CACHE_PREFIX.LISTING}${id}`;
-  await cacheService.del(cacheKey);
+  await cacheService.del(`${cacheService.CACHE_PREFIX.LISTING}${id}`);
 
   return result;
 }

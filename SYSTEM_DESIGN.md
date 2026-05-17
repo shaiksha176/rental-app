@@ -330,7 +330,184 @@ expect(conflicts).toHaveLength(9);   // nine were rejected
 
 ## Phase 3: Real-Time Availability Sync
 
-> Coming soon — Event-Driven Architecture, Cache Invalidation at Scale, Dead Letter Queues
+> **Not implemented in this project.** The concepts below are documented for learning. At this project's scale, direct cache invalidation (Phase 1) is the right approach. These patterns become necessary when you have multiple services, high write throughput, or critical side effects that must never be dropped.
+
+---
+
+### 1. Event-Driven Architecture
+
+**Problem:** As a system grows, multiple things may need to react when data changes. With direct calls, the service doing the write has to know about every downstream side effect — cache invalidation, notifications, search index updates, analytics, etc. Every new reaction means editing the original service.
+
+**Solution:** Instead of calling downstream systems directly, publish a typed event to a queue. Each downstream system is an independent consumer that subscribes and reacts on its own.
+
+```
+Direct (tightly coupled):
+  updateListing → DB write → invalidate cache
+                           → update search index
+                           → notify subscribers
+                           → log analytics event
+
+Event-driven (decoupled):
+  updateListing → DB write → publishEvent("LISTING_UPDATED")
+                                  ↓               ↓              ↓
+                            cache worker    search worker   analytics worker
+```
+
+**Key benefit:** Adding a new reaction (e.g. send an email) means adding a new consumer — zero changes to the service that produces the event.
+
+**When it's worth the complexity:** Multiple consumers reacting to the same event, different services in different processes, or side effects that need guaranteed delivery and retry.
+
+**When it's overkill:** One service, one reaction, direct call works fine.
+
+---
+
+### 2. Out-of-Order Event Handling
+
+**Problem:** A queue doesn't guarantee delivery order. If a host edits a listing twice, the second event might be processed before the first:
+
+```
+T=0ms:   Event A published (old data, timestamp: 1000)
+T=100ms: Event B published (new data, timestamp: 1100)
+
+Worker receives B → processes → cache reflects new data ✓
+Worker receives A → processes → cache now reflects old data ✗
+```
+
+This matters most when a worker *writes* data to cache (not just deletes it). A stale write overwrites fresh data.
+
+**Solution:** Each event carries `eventTimestamp = Date.now()`. The worker tracks the timestamp of the last event it processed per entity. If the incoming event is older, skip it.
+
+```
+Stored in Redis:  event:lastProcessed:<listingId> = 1100
+
+Event A arrives with timestamp 1000:
+  1000 < 1100 → stale → SKIP ✓
+```
+
+---
+
+### 3. Dead Letter Queue (DLQ)
+
+**Problem:** If a worker fails to process an event after all retries, where does it go? Without a safety net it disappears silently — no one knows, nothing gets fixed.
+
+**Solution:** Keep failed jobs after retries are exhausted (in BullMQ: `removeOnFail: false`). This creates a "dead letter queue" — a holding area for broken events.
+
+```
+Event → Worker attempt 1 → attempt 2 → attempt 3 → all fail
+                                                         ↓
+                                              Stays in Redis (failed state)
+                                                → inspect the error
+                                                → fix the root cause
+                                                → replay the job
+```
+
+The job retains its original payload + the error message + stack trace, so you can debug exactly what went wrong.
+
+---
+
+### Execution Flows (as implemented — direct invalidation)
+
+These are the actual flows in the codebase. Cache invalidation is synchronous and direct — no queue or worker involved.
+
+---
+
+#### Flow A: Guest reads a listing for the first time (cache MISS)
+
+```
+GET /api/v1/listings/:id
+        ↓
+listingService.getListingById
+        ↓
+cacheService.get("listing:<id>")
+        ↓
+  Redis: key does not exist → returns null
+        ↓
+listingRepository.getListingById  →  SELECT * FROM listings WHERE id = $1
+        ↓
+  PostgreSQL returns listing row
+        ↓
+cacheService.set("listing:<id>", listing, ttl=3600)
+        ↓
+  Redis: key "listing:<id>" CREATED  ← expires in 1 hour
+        ↓
+res.json(listing)
+```
+
+---
+
+#### Flow B: Guest reads the same listing again (cache HIT)
+
+```
+GET /api/v1/listings/:id
+        ↓
+listingService.getListingById
+        ↓
+cacheService.get("listing:<id>")
+        ↓
+  Redis: key exists → returns listing JSON
+        ↓
+res.json(listing)   ← DB never touched
+```
+
+---
+
+#### Flow C: Host updates a listing → cache deleted
+
+```
+PATCH /api/v1/listings/:id
+        ↓
+listingService.updateListing
+        ↓
+listingRepository.updateListing  →  UPDATE listings SET ... WHERE id = $1
+        ↓
+  PostgreSQL: row updated
+        ↓
+cacheService.del("listing:<id>")
+        ↓
+  Redis: key "listing:<id>" DELETED  ← synchronous, same request
+        ↓
+res.json(updatedListing)
+        ↓
+Next GET /listings/:id → cache MISS → DB read → fresh data → cache recreated
+```
+
+---
+
+#### Flow D: Host deletes a listing → cache deleted
+
+```
+DELETE /api/v1/listings/:id
+        ↓
+listingService.deleteListing
+        ↓
+listingRepository.deleteListing  →  DELETE FROM listings WHERE id = $1
+        ↓
+cacheService.del("listing:<id>")
+        ↓
+  Redis: key "listing:<id>" DELETED
+        ↓
+res.status(204).send()
+```
+
+---
+
+#### Redis key summary
+
+| Key | Created by | Deleted by | TTL |
+|---|---|---|---|
+| `listing:<id>` | `listingService.getListingById` on cache miss | `listingService.updateListing` / `deleteListing` | 3600s (fallback) |
+
+---
+
+### Key Takeaways from Phase 3
+
+| Concept | One-line summary |
+|---|---|
+| Event-driven architecture | Decouple producers from consumers — each reacts independently |
+| When to use it | Multiple consumers, cross-service side effects, guaranteed delivery needed |
+| When not to use it | One service, one reaction — a direct call is simpler and correct |
+| Out-of-order handling | Carry a timestamp on each event; skip events older than what you've already processed |
+| Dead Letter Queue | Never silently drop failed jobs — keep them for inspection and replay |
 
 ---
 
